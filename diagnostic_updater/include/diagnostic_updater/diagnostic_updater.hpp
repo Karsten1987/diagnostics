@@ -32,53 +32,61 @@
  *  POSSIBILITY OF SUCH DAMAGE.
  *********************************************************************/
 
-#ifndef DIAGNOSTICUPDATER_HH
-#define DIAGNOSTICUPDATER_HH
+#ifndef DIAGNOSTIC_UPDATER__DIAGNOSTIC_UPDATER_HPP_
+#define DIAGNOSTIC_UPDATER__DIAGNOSTIC_UPDATER_HPP_
 
+#include <functional>  // for bind()
+#include <memory>
 #include <stdexcept>
-#include <vector>
 #include <string>
+#include <vector>
 
-#include "ros/node_handle.h"
-#include "ros/this_node.h"
+#include "builtin_interfaces/msg/time.hpp"
 
-#include "diagnostic_msgs/DiagnosticArray.h"
-#include "diagnostic_updater/DiagnosticStatusWrapper.h"
+#include "diagnostic_msgs/msg/diagnostic_array.hpp"
+#include "diagnostic_msgs/msg/diagnostic_status.hpp"
 
-#include <boost/thread.hpp>
+#include "diagnostic_updater/DiagnosticStatusWrapper.hpp"
+
+#include "rcl/time.h"
+
+#include "rclcpp/clock.hpp"
+#include "rclcpp/duration.hpp"
+#include "rclcpp/node.hpp"
+#include "rclcpp/parameter_client.hpp"
+#include "rclcpp/rclcpp.hpp"
+#include "rclcpp/utilities.hpp"
+#include "rclcpp/time.hpp"
 
 namespace diagnostic_updater
 {
 
-typedef boost::function<void (DiagnosticStatusWrapper &)> TaskFunction;
-typedef boost::function<void (diagnostic_msgs::DiagnosticStatus &)> UnwrappedTaskFunction;
+typedef std::function<void (DiagnosticStatusWrapper &)> TaskFunction;
+typedef std::function<void (diagnostic_msgs::msg::DiagnosticStatus &)>
+  UnwrappedTaskFunction;
 
 /**
- * \brief DiagnosticTask is an abstract base class for collecting diagnostic data.
+ * \brief DiagnosticTask is an abstract base class for collecting diagnostic
+ * data.
  *
  * Subclasses are provided for generating common diagnostic information.
  *
  * A DiagnosticTask has a name, and a function that is called to cleate a
  * DiagnosticStatusWrapper.
  */
-
 class DiagnosticTask
 {
 public:
   /**
    * \brief Constructs a DiagnosticTask setting its name in the process.
    */
-  DiagnosticTask(const std::string name)
-  : name_(name)
-  {}
+  explicit DiagnosticTask(const std::string name)
+  : name_(name) {}
 
   /**
    * \brief Returns the name of the DiagnosticTask.
    */
-  const std::string & getName()
-  {
-    return name_;
-  }
+  const std::string & getName() {return name_;}
 
   /**
    * \brief Fills out this Task's DiagnosticStatusWrapper.
@@ -88,24 +96,26 @@ public:
   /**
    * Virtual destructor as this is a base class.
    */
-  virtual ~DiagnosticTask()
-  {}
+  virtual ~DiagnosticTask() {}
 
 private:
   const std::string name_;
 };
 
 /**
- * \brief a DiagnosticTask based on a boost::function.
+ * \brief a DiagnosticTask based on a std::function.
  *
- * The GenericFunctionDiagnosticTask calls the function when it updates. The function
+ * The GenericFunctionDiagnosticTask calls the function when it updates. The
+ * function
  * updates the DiagnosticStatusWrapper and collects data.
  *
- * This is useful for gathering information about a device or driver, like temperature,
+ * This is useful for gathering information about a device or driver, like
+ * temperature,
  * calibration, etc.
  */
 template<class T>
-class GenericFunctionDiagnosticTask : public DiagnosticTask
+class
+  GenericFunctionDiagnosticTask : public DiagnosticTask
 {
 public:
   /**
@@ -116,23 +126,22 @@ public:
    *
    * \param fn Function to be called when DiagnosticTask::run is called.
    */
-  GenericFunctionDiagnosticTask(const std::string & name, boost::function<void(T &)> fn)
-  : DiagnosticTask(name), fn_(fn)
-  {}
+  GenericFunctionDiagnosticTask(
+    const std::string & name,
+    std::function<void(T &)> fn)
+  : DiagnosticTask(name), fn_(fn) {}
 
-  virtual void run(DiagnosticStatusWrapper & stat)
-  {
-    fn_(stat);
-  }
+  virtual void run(DiagnosticStatusWrapper & stat) {fn_(stat);}
 
 private:
   const std::string name_;
   const TaskFunction fn_;
 };
 
-typedef GenericFunctionDiagnosticTask<diagnostic_msgs::DiagnosticStatus>
+typedef GenericFunctionDiagnosticTask<diagnostic_msgs::msg::DiagnosticStatus>
   UnwrappedFunctionDiagnosticTask;
-typedef GenericFunctionDiagnosticTask<DiagnosticStatusWrapper> FunctionDiagnosticTask;
+typedef GenericFunctionDiagnosticTask<DiagnosticStatusWrapper>
+  FunctionDiagnosticTask;
 
 /**
  * \brief Merges CompositeDiagnosticTask into a single DiagnosticTask.
@@ -142,7 +151,8 @@ typedef GenericFunctionDiagnosticTask<DiagnosticStatusWrapper> FunctionDiagnosti
  * DiagnosticStatusWrapped. The output of the combination has the max of
  * the status levels, and a concatenation of the non-zero-level messages.
  *
- * For instance, this could be used to combine the calibration and offset data from an
+ * For instance, this could be used to combine the calibration and offset data
+ * from an
  * IMU driver.
  */
 class CompositeDiagnosticTask : public DiagnosticTask
@@ -151,9 +161,8 @@ public:
   /**
    * \brief Constructs a CompositeDiagnosticTask with the given name.
    */
-  CompositeDiagnosticTask(const std::string name)
-  : DiagnosticTask(name)
-  {}
+  explicit CompositeDiagnosticTask(const std::string name)
+  : DiagnosticTask(name) {}
 
   /**
    * \brief Runs each child and merges their outputs.
@@ -186,10 +195,7 @@ public:
    * This CompositeDiagnosticTask will be called each time this
    * CompositeDiagnosticTask is run.
    */
-  void addTask(DiagnosticTask * t)
-  {
-    tasks_.push_back(t);
-  }
+  void addTask(DiagnosticTask * t) {tasks_.push_back(t);}
 
 private:
   std::vector<DiagnosticTask *> tasks_;
@@ -214,8 +220,7 @@ protected:
   {
 public:
     DiagnosticTaskInternal(const std::string name, TaskFunction f)
-    : name_(name), fn_(f)
-    {}
+    : name_(name), fn_(f) {}
 
     void run(diagnostic_updater::DiagnosticStatusWrapper & stat) const
     {
@@ -223,25 +228,19 @@ public:
       fn_(stat);
     }
 
-    const std::string & getName() const
-    {
-      return name_;
-    }
+    const std::string & getName() const {return name_;}
 
 private:
     std::string name_;
     TaskFunction fn_;
   };
 
-  boost::mutex lock_;
+  std::mutex lock_;
 
   /**
    * \brief Returns the vector of tasks.
    */
-  const std::vector<DiagnosticTaskInternal> & getTasks()
-  {
-    return tasks_;
-  }
+  const std::vector<DiagnosticTaskInternal> & getTasks() {return tasks_;}
 
 public:
   /**
@@ -272,7 +271,7 @@ public:
 
   void add(DiagnosticTask & task)
   {
-    TaskFunction f = boost::bind(&DiagnosticTask::run, &task, _1);
+    TaskFunction f = std::bind(&DiagnosticTask::run, &task, std::placeholders::_1);
     add(task.getName(), f);
   }
 
@@ -294,10 +293,9 @@ public:
     const std::string name, T * c,
     void (T::* f)(diagnostic_updater::DiagnosticStatusWrapper &))
   {
-    DiagnosticTaskInternal int_task(name, boost::bind(f, c, _1));
+    DiagnosticTaskInternal int_task(name, std::bind(f, c, std::placeholders::_1));
     addInternal(int_task);
   }
-
 
   /**
    * \brief Remove a task based on its name.
@@ -312,7 +310,7 @@ public:
 
   bool removeByName(const std::string name)
   {
-    boost::mutex::scoped_lock lock(lock_);
+    std::unique_lock<std::mutex> lock(lock_);
     for (std::vector<DiagnosticTaskInternal>::iterator iter = tasks_.begin();
       iter != tasks_.end(); iter++)
     {
@@ -332,8 +330,7 @@ private:
    * uses this to immediately publish a diagnostic that says that the node
    * is loading.
    */
-  virtual void addedTaskCallback(DiagnosticTaskInternal &)
-  {}
+  virtual void addedTaskCallback(DiagnosticTaskInternal &) {}
   std::vector<DiagnosticTaskInternal> tasks_;
 
 protected:
@@ -342,7 +339,7 @@ protected:
    */
   void addInternal(DiagnosticTaskInternal & task)
   {
-    boost::mutex::scoped_lock lock(lock_);
+    std::unique_lock<std::mutex> lock(lock_);
     tasks_.push_back(task);
     addedTaskCallback(task);
   }
@@ -375,10 +372,12 @@ public:
    * parameter.
    */
   Updater(
-    ros::NodeHandle h = ros::NodeHandle(), ros::NodeHandle ph = ros::NodeHandle("~"),
-    std::string node_name = ros::this_node::getName())
+    rclcpp::Node::SharedPtr h = rclcpp::Node::make_shared("diagnostics_updater"),
+    rclcpp::Node::SharedPtr ph = rclcpp::Node::make_shared("diagnostics_updater_private"),
+    std::string node_name = "diganostics_updater")
   : private_node_handle_(ph), node_handle_(h), node_name_(node_name)
   {
+    // @todo: how to deal with default node?
     setup();
   }
 
@@ -388,9 +387,11 @@ public:
    */
   void update()
   {
-    ros::Time now_time = ros::Time::now();
+    rclcpp::Time now_time = rclcpp::Clock().now();
+
     if (now_time < next_time_) {
-      // @todo put this back in after fix of #2157 update_diagnostic_period(); // Will be checked in force_update otherwise.
+      // @todo put this back in after fix of #2157 update_diagnostic_period();
+      // // Will be checked in force_update otherwise.
       return;
     }
 
@@ -406,17 +407,18 @@ public:
   void force_update()
   {
     update_diagnostic_period();
+    next_time_ = rclcpp::Clock().now() + rclcpp::Duration(period_);
 
-    next_time_ = ros::Time::now() + ros::Duration().fromSec(period_);
-
-    if (node_handle_.ok()) {
+    if (rclcpp::ok()) {
       bool warn_nohwid = hwid_.empty();
 
-      std::vector<diagnostic_msgs::DiagnosticStatus> status_vec;
+      std::vector<diagnostic_msgs::msg::DiagnosticStatus> status_vec;
 
-      boost::mutex::scoped_lock lock(lock_);     // Make sure no adds happen while we are processing here.
+      std::unique_lock<std::mutex> lock(
+        lock_);    // Make sure no adds happen while we are processing here.
       const std::vector<DiagnosticTaskInternal> & tasks = getTasks();
-      for (std::vector<DiagnosticTaskInternal>::const_iterator iter = tasks.begin();
+      for (std::vector<DiagnosticTaskInternal>::const_iterator iter =
+        tasks.begin();
         iter != tasks.end(); iter++)
       {
         diagnostic_updater::DiagnosticStatusWrapper status;
@@ -435,14 +437,18 @@ public:
         }
 
         if (verbose_ && status.level) {
-          ROS_WARN("Non-zero diagnostic status. Name: '%s', status %i: '%s'",
-            status.name.c_str(), status.level, status.message.c_str());
+          //  ROS_WARN("Non-zero diagnostic status. Name: '%s', status %i:
         }
+        //  '%s'", status.name.c_str(), status.level,
+        //  status.message.c_str());
       }
 
       if (warn_nohwid && !warn_nohwid_done_) {
-        ROS_WARN(
-          "diagnostic_updater: No HW_ID was set. This is probably a bug. Please report it. For devices that do not have a HW_ID, set this value to 'none'. This warning only occurs once all diagnostics are OK so it is okay to wait until the device is open before calling setHardwareID.");
+        // ROS_WARN("diagnostic_updater: No HW_ID was set. This is probably a
+        // bug. Please report it. For devices that do not have a HW_ID, set this
+        // value to 'none'. This warning only occurs once all diagnostics are OK
+        // so it is okay to wait until the device is open before calling
+        // setHardwareID.");
         warn_nohwid_done_ = true;
       }
 
@@ -454,20 +460,18 @@ public:
    * \brief Returns the interval between updates.
    */
 
-  double getPeriod()
-  {
-    return period_;
-  }
+  double getPeriod() {return period_;}
 
   // Destructor has trouble because the node is already shut down.
   /*~Updater()
     {
   // Create a new node handle and publisher because the existing one is
   // probably shut down at this stage.
-
   ros::NodeHandle newnh;
   node_handle_ = newnh;
-  publisher_ = node_handle_.advertise<diagnostic_msgs::DiagnosticArray>("/diagnostics", 1);
+  publisher_ =
+  node_handle_.advertise<diagnostic_msgs::msg::DiagnosticArray>("/diagnostics",
+  1);
   broadcast(2, "Node shut down");
   }*/
 
@@ -484,10 +488,11 @@ public:
 
   void broadcast(int lvl, const std::string msg)
   {
-    std::vector<diagnostic_msgs::DiagnosticStatus> status_vec;
+    std::vector<diagnostic_msgs::msg::DiagnosticStatus> status_vec;
 
     const std::vector<DiagnosticTaskInternal> & tasks = getTasks();
-    for (std::vector<DiagnosticTaskInternal>::const_iterator iter = tasks.begin();
+    for (std::vector<DiagnosticTaskInternal>::const_iterator iter =
+      tasks.begin();
       iter != tasks.end(); iter++)
     {
       diagnostic_updater::DiagnosticStatusWrapper status;
@@ -504,19 +509,17 @@ public:
   void setHardwareIDf(const char * format, ...)
   {
     va_list va;
-    char buff[1000];     // @todo This could be done more elegantly.
+    char buff[1000];  // @todo This could be done more elegantly.
     va_start(va, format);
-    if (vsnprintf(buff, 1000, format, va) >= 1000) {
-      ROS_DEBUG("Really long string in diagnostic_updater::setHardwareIDf.");
+    if (vsnprintf(buff, sizeof(buff), format, va) >= 1000) {
+      // ROS_DEBUG("Really long string in
+      // diagnostic_updater::setHardwareIDf.");
     }
     hwid_ = std::string(buff);
     va_end(va);
   }
 
-  void setHardwareID(const std::string & hwid)
-  {
-    hwid_ = hwid;
-  }
+  void setHardwareID(const std::string & hwid) {hwid_ = hwid;}
 
 private:
   /**
@@ -526,16 +529,21 @@ private:
   void update_diagnostic_period()
   {
     double old_period = period_;
-    private_node_handle_.getParamCached("diagnostic_period", period_);
-    next_time_ += ros::Duration(period_ - old_period);     // Update next_time_
+#if 0  // @todo: nodes don't automatically have a parameter service yet...disable
+       // for now
+    rclcpp::parameter_client::SyncParametersClient client(private_node_handle_);
+    period_ = client.get_parameter("diagnostic_period", period_);
+#endif
+    next_time_ = next_time_ +
+      rclcpp::Duration(period_ - old_period);             // Update next_time_
   }
 
   /**
    * Publishes a single diagnostic status.
    */
-  void publish(diagnostic_msgs::DiagnosticStatus & stat)
+  void publish(diagnostic_msgs::msg::DiagnosticStatus & stat)
   {
-    std::vector<diagnostic_msgs::DiagnosticStatus> status_vec;
+    std::vector<diagnostic_msgs::msg::DiagnosticStatus> status_vec;
     status_vec.push_back(stat);
     publish(status_vec);
   }
@@ -543,18 +551,18 @@ private:
   /**
    * Publishes a vector of diagnostic statuses.
    */
-  void publish(std::vector<diagnostic_msgs::DiagnosticStatus> & status_vec)
+  void publish(std::vector<diagnostic_msgs::msg::DiagnosticStatus> & status_vec)
   {
-    for (std::vector<diagnostic_msgs::DiagnosticStatus>::iterator
-      iter = status_vec.begin(); iter != status_vec.end(); iter++)
+    for (std::vector<diagnostic_msgs::msg::DiagnosticStatus>::iterator iter =
+      status_vec.begin();
+      iter != status_vec.end(); iter++)
     {
-      iter->name =
-        node_name_.substr(1) + std::string(": ") + iter->name;
+      iter->name = node_name_.substr(1) + std::string(": ") + iter->name;
     }
-    diagnostic_msgs::DiagnosticArray msg;
+    diagnostic_msgs::msg::DiagnosticArray msg;
     msg.status = status_vec;
-    msg.header.stamp = ros::Time::now();     // Add timestamp for ROS 0.10
-    publisher_.publish(msg);
+    msg.header.stamp = rclcpp::Clock().now();  // Add timestamp for ROS 0.10
+    publisher_->publish(msg);
   }
 
   /**
@@ -562,10 +570,13 @@ private:
    */
   void setup()
   {
-    publisher_ = node_handle_.advertise<diagnostic_msgs::DiagnosticArray>("/diagnostics", 1);
+    publisher_ =
+      node_handle_->create_publisher<diagnostic_msgs::msg::DiagnosticArray>(
+      "/diagnostics", 1);
 
     period_ = 1.0;
-    next_time_ = ros::Time::now() + ros::Duration(period_);
+
+    next_time_ = rclcpp::Clock().now() + rclcpp::Duration(period_);
     update_diagnostic_period();
 
     verbose_ = false;
@@ -584,18 +595,18 @@ private:
     publish(stat);
   }
 
-  ros::NodeHandle private_node_handle_;
-  ros::NodeHandle node_handle_;
-  ros::Publisher publisher_;
+  rclcpp::Node::SharedPtr private_node_handle_;
+  rclcpp::Node::SharedPtr node_handle_;
+  rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr
+    publisher_;
 
-  ros::Time next_time_;
+  rclcpp::Time next_time_;
 
   double period_;
   std::string hwid_;
   std::string node_name_;
   bool warn_nohwid_done_;
 };
+}   // namespace diagnostic_updater
 
-}
-
-#endif
+#endif  // DIAGNOSTIC_UPDATER__DIAGNOSTIC_UPDATER_HPP_
